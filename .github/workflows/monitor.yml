@@ -1,0 +1,94 @@
+name: Ticket Board Monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Check ticket board
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          node <<'EOF'
+          const { chromium } = require('playwright');
+
+          const URL = 'https://ticket.tickebo.jp/show/event.html?info=16255';
+          const WEBHOOK = process.env.DISCORD_WEBHOOK;
+
+          (async () => {
+            const browser = await chromium.launch({
+              headless: true
+            });
+
+            const page = await browser.newPage();
+
+            try {
+              await page.goto(URL, {
+                waitUntil: 'networkidle',
+                timeout: 60000
+              });
+
+              await page.waitForTimeout(5000);
+
+              const text = await page.locator('body').innerText();
+
+              const dates = ['8/13', '8/14', '8/15', '8/16'];
+              const found = [];
+
+              for (const date of dates) {
+                const index = text.indexOf(date);
+
+                if (index === -1) continue;
+
+                const area = text.substring(index, index + 500);
+
+                if (!area.includes('出品待ち')) {
+                  found.push(date);
+                }
+              }
+
+              if (found.length > 0 && WEBHOOK) {
+                const message =
+                  `🚨 ticket boardに変化を検知！\\n\\n` +
+                  `対象公演：${found.join('・')}\\n` +
+                  `ページ：${URL}\\n\\n` +
+                  `確認してみて！`;
+
+                await fetch(WEBHOOK, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json'
+                  },
+                  body: JSON.stringify({
+                    content: message
+                  })
+                });
+              }
+
+              console.log('監視完了');
+              console.log('変化検知:', found);
+
+            } finally {
+              await browser.close();
+            }
+          })();
+          EOF
