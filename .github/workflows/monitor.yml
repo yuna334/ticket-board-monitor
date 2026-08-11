@@ -26,12 +26,12 @@ jobs:
 
       - name: Check ticket board
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_WEBHOOK: ${{ secrets.WEBHOOK_URL }}
         run: |
           node <<'EOF'
           const { chromium } = require('playwright');
 
-          const URL = 'https://ticket.tickebo.jp/show/event.html?info=16255';
+          const URL = 'https://ticket.tickebo.jp/show/event.html';
           const WEBHOOK = process.env.DISCORD_WEBHOOK;
 
           (async () => {
@@ -66,27 +66,31 @@ jobs:
                 }
               }
 
-              if (found.length > 0 && WEBHOOK) {
-                const message =
-                  `🚨 ticket boardに変化を検知！\\n\\n` +
-                  `対象公演：${found.join('・')}\\n` +
-                  `ページ：${URL}\\n\\n` +
-                  `確認してみて！`;
+              console.log('対象日:', dates);
+              console.log('空きが見つかった日:', found);
 
+              if (found.length > 0) {
                 await fetch(WEBHOOK, {
                   method: 'POST',
                   headers: {
                     'Content-Type': 'application/json'
                   },
                   body: JSON.stringify({
-                    content: message
+                    content:
+                      `🎫 チケットボードに動きがありました！\n\n` +
+                      found.map(date => `・${date}`).join('\n') +
+                      `\n\n${URL}`
                   })
                 });
+
+                console.log('Discord通知を送信しました。');
+              } else {
+                console.log('現在、対象日の出品はありません。');
               }
 
-              console.log('監視完了');
-              console.log('変化検知:', found);
-
+            } catch (error) {
+              console.error(error);
+              process.exitCode = 1;
             } finally {
               await browser.close();
             }
